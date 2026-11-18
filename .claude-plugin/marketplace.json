@@ -1,0 +1,14 @@
+{
+  "name": "pipeline-forecast",
+  "description": "Pipeline Forecast Model, a CRM data integrity and pipeline modeling plugin for B2B SaaS.",
+  "owner": {
+    "name": "Page Sands"
+  },
+  "plugins": [
+    {
+      "name": "pipeline-forecast",
+      "source": "./",
+      "description": "Checks CRM opportunity data for forecast-distorting problems and measures win rates, deal size, cycle length and pipeline creation by source and stage."
+    }
+  ]
+}
