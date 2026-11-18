@@ -1,7 +1,7 @@
 {
   "name": "pipeline-forecast",
-  "version": "0.1.0",
-  "description": "Pipeline Forecast Model for B2B SaaS. Checks CRM opportunity data for problems that distort forecasts, sizes each one by the pipeline it touches, and measures win rates, deal size, cycle length and pipeline creation by source and by stage from mature cohorts. Works from a Salesforce or HubSpot export; read-only.",
+  "version": "0.2.0",
+  "description": "Pipeline Forecast Model for B2B SaaS. Forecasts the quarter as a range calibrated on snapshots of your own pipeline history, works back from targets to the deals each source must create per month, backtests itself against past quarters, and checks CRM data integrity first. Works from a Salesforce or HubSpot export; read-only.",
   "author": {
     "name": "Page Sands",
     "url": "https://sandsdx.com"
