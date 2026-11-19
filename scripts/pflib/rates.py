@@ -78,6 +78,8 @@ def compute_rates(opps: list[dict], stages: dict, as_of: date, lookback_months: 
     sizes_all = [o["amount"] for o in won_recent if o.get("amount")]
     won_cycle_rows = [o for o in valid if o["_status"] == "won" and o.get("close") and start <= o["close"] < as_of]
     cycles_all = sorted((o["close"] - o["created"]).days for o in won_cycle_rows)
+    lost_cycle_rows = [o for o in valid if o["_status"] == "lost" and o.get("close") and start <= o["close"] < as_of]
+    lost_all = sorted((o["close"] - o["created"]).days for o in lost_cycle_rows)
 
     def size_stats(xs):
         return {"n": len(xs), "mean": round(sum(xs) / len(xs), 2) if xs else None,
@@ -115,6 +117,8 @@ def compute_rates(opps: list[dict], stages: dict, as_of: date, lookback_months: 
             "deal_size_pooled": use_pooled_size,
             "won_cycle_days": cycle_stats(cy) if cy else cycle_stats(cycles_all),
             "won_cycles": cy,
+            "lost_cycles": sorted((o["close"] - o["created"]).days for o in lost_cycle_rows if o.get("source") == s),
+            "won_amounts": sorted(sz),
             "cycle_pooled": not cy,
             "created_per_month": round(sum(monthly) / 12, 2),
             "created_amount_per_month": round(sum(monthly_amt) / 12, 2),
@@ -131,6 +135,7 @@ def compute_rates(opps: list[dict], stages: dict, as_of: date, lookback_months: 
                 for k, v in sorted(q.items()) if v[0] >= 20]
 
     stage_rates = _stage_rates(mature, opps, stages, history, overall_wr)
+    snapshot = snapshot_curves(valid, stages, as_of, start, history)
     untagged_mature = len(by_src.get(None, []))
     for o in opps:
         o.pop("_status", None)
@@ -141,13 +146,127 @@ def compute_rates(opps: list[dict], stages: dict, as_of: date, lookback_months: 
             "mature_n": n_all, "mature_won": w_all, "win_rate": round(overall_wr, 4),
             "value_win_rate": round(wa_all / ca_all, 4) if ca_all else None,
             "deal_size": size_stats(sizes_all), "won_cycle_days": cycle_stats(cycles_all), "won_cycles": cycles_all,
+            "lost_cycles": lost_all, "won_amounts": sorted(sizes_all),
             "untagged_mature_n": untagged_mature,
         },
         "sources": src_out,
         "quarterly_win_rates": quarters,
         "stage_win_rates": stage_rates,
+        "snapshot": snapshot,
         "months": months,
     }
+
+
+# ---------- snapshot curves ----------
+#
+# The forecast question is: of deals open today in this stage, at this age, what share will be won within the
+# next N months? "Win rate of deals that reached the stage" answers a different question and runs high for
+# early stages, because deals that will lose tend to stall and so sit in early stages longer. The answer is
+# measured directly by rebuilding the pipeline as it stood at each past month start and following each deal.
+
+AGE_BUCKETS = (30, 90, 180)  # days: <30, 30-89, 90-179, 180+
+HORIZON_MONTHS = 12
+SNAP_SHRINK_K = 20
+DAYS_PER_MONTH = 30.44
+
+
+def age_bucket(age_days: int) -> int:
+    for i, edge in enumerate(AGE_BUCKETS):
+        if age_days < edge:
+            return i
+    return len(AGE_BUCKETS)
+
+
+def _stage_at_fn(history, stages):
+    by_id = defaultdict(list)
+    for h in history or []:
+        if h["field"] == "stage":
+            by_id[h["id"]].append((h["changed"], h["new"]))
+    for v in by_id.values():
+        v.sort()
+
+    def stage_at(oid, t):
+        cur = None
+        for d, st in by_id.get(oid, ()):
+            if d > t:
+                break
+            cur = st
+        if cur in stages["order"]:
+            return cur
+        if cur is None and history:
+            return stages["order"][0] if stages["order"] else None
+        return None
+    return stage_at
+
+
+def snapshot_curves(opps: list[dict], stages: dict, as_of: date, window_start: date, history: list[dict] | None) -> dict:
+    """Cumulative P(won within m months | open at a snapshot, by stage and age), m = 1..12, from monthly snapshots."""
+    stage_at = _stage_at_fn(history, stages)
+    use_stage = bool(history)
+    first = date(window_start.year, window_start.month, 1)
+    snaps = []
+    t = first
+    while add_months(t, 1) <= as_of:
+        snaps.append(t)
+        t = add_months(t, 1)
+    # cell -> per month m: [deals observable for month m, deals won in month m]
+    counts = defaultdict(lambda: [[0, 0] for _ in range(HORIZON_MONTHS)])
+    n_obs = 0
+    for snap in snaps:
+        observable = [m for m in range(HORIZON_MONTHS) if snap + timedelta(days=round((m + 1) * DAYS_PER_MONTH)) <= as_of]
+        if not observable:
+            continue
+        for o in opps:
+            if o["created"] >= snap:
+                continue
+            closed = o["_status"] in ("won", "lost") and o.get("close")
+            if closed and o["close"] < snap:
+                continue
+            st = stage_at(o["id"], snap) if use_stage else None
+            b = age_bucket((snap - o["created"]).days)
+            win_month = None
+            if o["_status"] == "won" and o.get("close"):
+                win_month = int((o["close"] - snap).days // DAYS_PER_MONTH)
+            n_obs += 1
+            for key in ((st, b), (st, None), (None, b), (None, None)):
+                c = counts[key]
+                for m in observable:
+                    c[m][0] += 1
+                    if win_month == m:
+                        c[m][1] += 1
+
+    def hazards(key):
+        return [(w / n if n else 0.0) for n, w in counts[key]]
+
+    def shrink(key, parent):
+        out = []
+        ph = hazards(parent)
+        for m, (n, w) in enumerate(counts[key]):
+            out.append((w + SNAP_SHRINK_K * ph[m]) / (n + SNAP_SHRINK_K))
+        return out
+
+    def cumulative(hs):
+        c, acc = [], 0.0
+        for h in hs:
+            acc += h  # hazards here are unconditional shares of the snapshot cohort, so they add up
+            c.append(round(min(acc, 1.0), 5))
+        return c
+
+    cells = {}
+    keys = sorted(counts, key=lambda k: (str(k[0]), str(k[1])))
+    for key in keys:
+        st, b = key
+        if key == (None, None):
+            h = hazards(key)
+        elif b is None:
+            h = shrink(key, (None, None))
+        elif st is None:
+            h = shrink(key, (None, None))
+        else:
+            h = shrink(key, (st, None))
+        cells[f"{st or '*'}|{'*' if b is None else b}"] = {"n": counts[key][0][0], "cumulative": cumulative(h)}
+    return {"method": "monthly snapshots by stage and age" if use_stage else "monthly snapshots by age (no stage history)",
+            "snapshots": len(snaps), "observations": n_obs, "age_buckets_days": list(AGE_BUCKETS), "cells": cells}
 
 
 def _stage_rates(mature, opps, stages, history, overall_wr) -> dict:

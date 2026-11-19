@@ -8,7 +8,7 @@
     {
       "name": "pipeline-forecast",
       "source": "./",
-      "description": "Checks CRM opportunity data for forecast-distorting problems and measures win rates, deal size, cycle length and pipeline creation by source and stage."
+      "description": "Quarter forecast range, pipeline plan by source, backtest and CRM data integrity checks for B2B SaaS, from a CRM export."
     }
   ]
 }
