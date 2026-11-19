@@ -58,15 +58,6 @@ The synthetic sample comes from a fictional company with known true rates and pl
 - the backtest puts actual bookings inside the forecast range in at least 4 of 6 past quarters. Today it is 6 of 6, with the middle estimate off by 7% on average.
 - the plan's required pace scales with the gap, and a year out it matches the steady-state pace
 
-## Install
-
-```
-/plugin marketplace add wpsands/pipeline-forecast
-/plugin install pipeline-forecast@pipeline-forecast
-```
-
-Then ask Claude Code: "Forecast our quarter and tell me how much pipeline we need," and attach your opportunity export. Have your quarterly bookings targets ready.
-
 ## What it needs
 
 | Input | Required | Notes |
@@ -75,6 +66,31 @@ Then ask Claude Code: "Forecast our quarter and tell me how much pipeline we nee
 | Field-history export (CSV) | Strongly recommended | Stage and close-date changes. The forecast's stage weights are measured from it. Without it, deals are weighted by age and source only. Salesforce: an Opportunity Field History report. |
 | Confirmed stage order | Yes | The model guesses the order; you confirm it. |
 | Quarterly bookings targets | For the plan | New business, starting with the current quarter. |
+
+## Install
+
+You need [Claude Code](https://claude.com/claude-code). Type these two commands into Claude Code itself, in the same box where you chat with Claude. They are not terminal commands.
+
+```
+/plugin marketplace add wpsands/pipeline-forecast
+/plugin install pipeline-forecast@pipeline-forecast
+```
+
+1. The first command registers this public GitHub repo as a plugin source. Claude Code calls a source like this a marketplace. Nothing is installed yet.
+2. The second command installs the plugin. The format is `plugin@marketplace`. The plugin and the repo share the name `pipeline-forecast`, so the name appears twice.
+3. Restart Claude Code if the plugin does not show up right away.
+
+To get a later version, run `/plugin marketplace update pipeline-forecast`.
+
+Then ask Claude Code: "Forecast our quarter and tell me how much pipeline we need," and attach your opportunity export. Have your quarterly bookings targets ready.
+
+## Who sees what
+
+The plugin runs on your machine, with your accounts. Installing it downloads a copy of this public repo, the same files the Code button on GitHub gives you. It needs no GitHub account and grants no access in either direction.
+
+- It reads only the CSV exports you give it. It never connects to your CRM or changes it.
+- Results go in a `runs/` folder on your machine, which is kept out of git.
+- Nothing is sent to the author, to this repo or to sandsdx.com.
 
 ## The CLI
 
